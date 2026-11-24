@@ -105,22 +105,26 @@ Then open `http://<loop-ip>:5678` and create the n8n owner account. Save the
 encryption key somewhere safe (the installer prints how to read it): without it,
 credentials stored in n8n are lost on a rebuild.
 
-## 6. CT plane: Plane (host)
+To install into a container that already exists instead, and for what is
+configured in the web interface versus `.env`, see `docs/N8N.md`.
 
-Needs the n8n IP from step 5, so Plane will allow webhooks to it in Phase 2.
+## 6. CT plane: Plane (community script) — done
 
-```bash
-LOOP_IP=<loop-ip> bash proxmox/create-lxc.sh --role plane
-```
-
-Defaults: 2 vCPU / 4 GB / 30 GB, Plane v1.4.3, release files checked by sha256.
-The first start pulls a lot of images and runs migrations; allow 10 minutes.
+Plane runs in its own CT, installed with the **Proxmox VE community script**,
+not by this repo. That script installs Plane natively under `/opt/plane` (no
+Docker) and is also how Plane is updated. Its default size is 4 vCPU / 6 GB
+RAM / 8 GB disk; `docs/PLANE.md` has the details.
 
 Then:
 
 1. `http://<plane-ip>/god-mode/` → create the instance admin.
-2. `http://<plane-ip>/` → create your workspace. Projects and states come in
-   Phase 1.
+2. `http://<plane-ip>/` → create **one** workspace (e.g. `homelab`). Projects
+   and states come in Phase 1; `docs/PLANE.md` has the layout (one project per
+   system) and the bot account for the agent.
+3. **Once n8n has its IP (step 5)**, allow Plane to send webhooks to it: add
+   `WEBHOOK_ALLOWED_IPS=<loop-ip>/32` to Plane's API config and restart it.
+   The exact commands are in `docs/PLANE.md` ("Plane refuses a private
+   address"). Without this, Plane won't deliver webhooks to n8n.
 
 ## 7. Vault backup (host)
 

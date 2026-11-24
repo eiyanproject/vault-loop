@@ -1,0 +1,4 @@
+# Registry entries for private systems: kept on disk, never pushed (public repo).
+vault/Systems/private/
+# Written by n8n/setup-n8n.sh when run from the repo root.
+worker-token

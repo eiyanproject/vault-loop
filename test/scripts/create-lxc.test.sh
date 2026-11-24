@@ -55,7 +55,8 @@ hasarg() { if grep -qx -- "$2" /out/create.args 2>/dev/null; then ok "$1"; else 
 run() { rm -f /out/create.args /out/pct.calls; bash $S "$@" </dev/null 2>&1; }
 
 out=$(run);                     saw "no role is refused"        "$out" "--role is required"
-out=$(run --role web);          saw "unknown role is refused"   "$out" "must be loop or plane"
+out=$(run --role web);          saw "unknown role is refused"   "$out" "must be loop"
+out=$(run --role plane);        saw "plane role points to docs" "$out" "docs/PLANE.md"
 
 out=$(CT_IP=192.168.0.40/24 CT_GW=192.168.0.1 run --role loop)
 saw "loop dry run shows 1 GB" "$out" "2 vCPU / 1024 MB RAM / 512 MB swap / 16 GB"
@@ -63,11 +64,6 @@ saw "loop dry run changes nothing" "$out" "Dry run. Nothing was changed"
 [ ! -f /out/create.args ] && ok "dry run does not call pct create" || no "dry run called pct create"
 saw "picks the amd64 debian 13 template" "$out" "debian-13-standard_13.6-1_amd64"
 
-out=$(CT_IP=192.168.0.41/24 CT_GW=192.168.0.1 run --role plane)
-saw "plane dry run shows 4 GB" "$out" "2 vCPU / 4096 MB RAM / 1024 MB swap / 30 GB"
-
-out=$(LOOP_IP=192.168.0.40 run --role loop);   saw "LOOP_IP rejected for loop" "$out" "only applies to --role plane"
-out=$(LOOP_IP=999.1.1.1 run --role plane);     saw "bad LOOP_IP rejected"      "$out" "not a valid IPv4"
 out=$(STUB_EXISTS=1 run --role loop);          saw "existing CTID refused"     "$out" "already exists"
 out=$(STUB_NODE=eiyan run --role loop);        saw "wrong node warns"          "$out" "this is node 'eiyan', not 'eiyan2'"
 out=$(INSTALLER=/nope run --role loop);        saw "missing installer refused" "$out" "installer not found"
@@ -80,11 +76,7 @@ hasarg "hostname vault-loop"          "vault-loop"
 hasarg "nesting and keyctl"           "nesting=1,keyctl=1"
 hasarg "static network"               "name=eth0,bridge=vmbr0,ip=192.168.0.40/24,gw=192.168.0.1"
 if grep -q "push 108 /work/proxmox/../install/loop.sh /root/vault-loop-install.sh" /out/pct.calls; then ok "pushes install/loop.sh"; else no "did not push install/loop.sh"; fi
-if grep -q "exec 108 -- env LOOP_IP= bash /root/vault-loop-install.sh" /out/pct.calls; then ok "runs the installer"; else no "did not run the installer"; fi
-
-out=$(CT_IP=192.168.0.41/24 CT_GW=192.168.0.1 CT_SSHKEY=/out/key.pub LOOP_IP=192.168.0.40 run --role plane --yes)
-hasarg "plane creates with 4096 MB" "4096"
-if grep -q "exec 108 -- env LOOP_IP=192.168.0.40 bash" /out/pct.calls; then ok "passes LOOP_IP to the plane installer"; else no "LOOP_IP not passed"; fi
+if grep -q "exec 108 -- bash /root/vault-loop-install.sh" /out/pct.calls; then ok "runs the installer"; else no "did not run the installer"; fi
 
 echo "create-lxc: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

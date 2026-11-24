@@ -1,0 +1,1148 @@
+{
+  "name": "vault-loop",
+  "nodes": [
+    {
+      "id": "vl-01",
+      "name": "Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Every trigger's job arrives here as { kind, source, ref, detail }.\n// Normalise it and give it the dedupe key.\nreturn $input.all().map((item) => {\n  const j = item.json;\n  const ref = String(j.ref || '').trim();\n  return { json: { kind: j.kind, source: j.source, ref, detail: String(j.detail || ''), job_key: j.kind + ':' + ref } };\n});\n"
+      }
+    },
+    {
+      "id": "vl-02",
+      "name": "Find open job",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "loop_jobs"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "job_key",
+              "condition": "eq",
+              "keyValue": "={{ $json.job_key }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "neq",
+              "keyValue": "done"
+            },
+            {
+              "keyName": "status",
+              "condition": "neq",
+              "keyValue": "failed"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "vl-03",
+      "name": "Only new jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Drop jobs that already have a queued or running row with the same key.\nconst open = new Set($input.all().filter((i) => i.json.id).map((i) => i.json.job_key));\nconst seen = new Set();\nconst out = [];\nfor (const item of $('Job').all()) {\n  const j = item.json;\n  if (open.has(j.job_key) || seen.has(j.job_key)) continue;\n  seen.add(j.job_key);\n  out.push({ json: { ...j, status: 'queued', attempts: 0 } });\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "vl-04",
+      "name": "Queue job",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "loop_jobs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_key": "={{ $json.job_key }}",
+            "kind": "={{ $json.kind }}",
+            "source": "={{ $json.source }}",
+            "ref": "={{ $json.ref }}",
+            "status": "queued",
+            "attempts": "={{ 0 }}",
+            "detail": "={{ $json.detail }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "job_key",
+              "displayName": "job_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kind",
+              "displayName": "kind",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ref",
+              "displayName": "ref",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempts",
+              "displayName": "attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "vl-05",
+      "name": "Plane webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        100
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vault-loop/plane",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "6b0c3f9e-1d1a-4c55-9a51-0f3b7a2d1001"
+    },
+    {
+      "id": "vl-06",
+      "name": "Plane: approved items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Plane sends every work item event. Keep only items whose state is\n// \"Approved\" (by name). If the payload carries no state name, queue a\n// plane-item job anyway and let the worker read the item from Plane's API:\n// a missed approval costs more than an extra check.\nconst out = [];\nfor (const item of $input.all()) {\n  const body = item.json.body || item.json;\n  if (body.event !== 'issue' && body.event !== 'work_item') continue;\n  if (body.action === 'deleted') continue;\n  const d = body.data || {};\n  const stateName = (d.state && d.state.name) || (d.state_detail && d.state_detail.name) || d.state__name || '';\n  if (stateName && stateName.toLowerCase() !== 'approved') continue;\n  if (!d.id) continue;\n  out.push({ json: {\n    kind: 'plane-item', source: 'plane', ref: d.id,\n    detail: stateName ? 'moved to Approved' : 'state not in payload; worker checks it',\n  } });\n}\nreturn out;\n"
+      }
+    },
+    {
+      "id": "vl-07",
+      "name": "Run now",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "formTitle": "Vault loop: run now",
+        "formDescription": "Queue work for the PC worker now instead of waiting for the next sync or sweep.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Action",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Scan Inbox"
+                  },
+                  {
+                    "option": "Process one note"
+                  },
+                  {
+                    "option": "Retry a failed job"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Note path or job id",
+              "placeholder": "Inbox/my-note.md  or  42"
+            }
+          ]
+        },
+        "options": {
+          "path": "vault-loop/run-now",
+          "respondWithOptions": {
+            "values": {
+              "formSubmittedText": "Queued. The PC worker picks it up on its next poll."
+            }
+          }
+        }
+      },
+      "webhookId": "6b0c3f9e-1d1a-4c55-9a51-0f3b7a2d1002"
+    },
+    {
+      "id": "vl-08",
+      "name": "Run now: route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const f = $input.first().json;\nconst action = f['Action'];\nconst arg = String(f['Note path or job id'] || '').trim();\nif (action === 'Retry a failed job') {\n  if (!/^\\d+$/.test(arg)) throw new Error('Retry needs a job id (a number), got: ' + arg);\n  return [{ json: { retry_id: Number(arg) } }];\n}\nif (action === 'Process one note') {\n  if (!arg.endsWith('.md')) throw new Error('Process one note needs a vault path ending in .md, got: ' + arg);\n  return [{ json: { kind: 'triage', source: 'run-now', ref: arg.replace(/^\\/+/, ''), detail: 'Run now' } }];\n}\nreturn [{ json: { kind: 'scan-inbox', source: 'run-now', ref: 'Inbox', detail: 'Run now' } }];\n"
+      }
+    },
+    {
+      "id": "vl-09",
+      "name": "Is retry?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        640,
+        300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r1",
+                    "leftValue": "={{ $json.retry_id }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "number",
+                      "operation": "exists",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "retry"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "new job"
+        }
+      }
+    },
+    {
+      "id": "vl-10",
+      "name": "Requeue failed job",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        860,
+        200
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "loop_jobs"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.retry_id }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "failed"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "queued",
+            "detail": "requeued by Run now"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "vl-11",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        500
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "vl-12",
+      "name": "Sweep: scan Inbox",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Safety net for missed events or a PC that was asleep. Dedupe in the queue\n// chain means this never stacks up more than one scan-inbox job.\nreturn [{ json: { kind: 'scan-inbox', source: 'sweep', ref: 'Inbox', detail: '15-minute sweep' } }];\n"
+      }
+    },
+    {
+      "id": "vl-13",
+      "name": "Running jobs",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        420,
+        680
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "loop_jobs"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "running"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "vl-14",
+      "name": "Stuck for over 2 hours",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        680
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// A job a worker claimed but never reported on. Mark it failed so it shows\n// up for Run now's retry instead of blocking its key forever.\nconst cutoff = Date.now() - 2 * 60 * 60 * 1000;\nreturn $input.all()\n  .filter((i) => i.json.id && new Date(i.json.updatedAt).getTime() < cutoff)\n  .map((i) => ({ json: { id: i.json.id } }));\n"
+      }
+    },
+    {
+      "id": "vl-15",
+      "name": "Mark stuck as failed",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        860,
+        680
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "loop_jobs"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "failed",
+            "detail": "no report from the worker within 2 hours"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "vl-16",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        880
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "vl-17",
+      "name": "Syncthing: settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        880
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Filled in by n8n/setup-n8n.sh (SYNCTHING_URL, SYNCTHING_FOLDER). Re-run\n// setup to change them rather than editing here: setup overwrites this node.\nconst SYNCTHING_URL = '__SYNCTHING_URL__';\nconst FOLDER_ID = '__SYNCTHING_FOLDER__';\nconst s = $getWorkflowStaticData('global');\nreturn [{ json: { url: SYNCTHING_URL, folder: FOLDER_ID, since: s.syncthingLastEvent || 0 } }];\n"
+      }
+    },
+    {
+      "id": "vl-18",
+      "name": "Syncthing events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        880
+      ],
+      "parameters": {
+        "url": "={{ $json.url }}/rest/events",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "since",
+              "value": "={{ $json.since }}"
+            },
+            {
+              "name": "events",
+              "value": "ItemFinished,FolderSummary"
+            },
+            {
+              "name": "timeout",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__SYNCTHING_CRED_ID__",
+          "name": "Syncthing CT 107"
+        }
+      }
+    },
+    {
+      "id": "vl-19",
+      "name": "Syncthing: notes after idle",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        880
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Collect notes CT 107 received, and queue them only once the folder is idle\n// again: one job per note per sync, never a half-written file.\nconst s = $getWorkflowStaticData('global');\nconst cfg = $('Syncthing: settings').first().json;\nlet events = $input.all().map((i) => i.json);\nif (events.length === 1 && Array.isArray(events[0])) events = events[0];\nif (events.length === 1 && Array.isArray(events[0].data)) events = events[0].data;\ns.pending = s.pending || {};\nlet idle = false;\nfor (const e of events) {\n  if (typeof e.id === 'number' && e.id > (s.syncthingLastEvent || 0)) s.syncthingLastEvent = e.id;\n  const d = e.data || {};\n  if (d.folder !== cfg.folder) continue;\n  if (e.type === 'ItemFinished' && !d.error && d.type === 'file' && /\\.md$/i.test(d.item || '')) {\n    if (d.action === 'delete') delete s.pending[d.item]; else s.pending[d.item] = true;\n  }\n  if (e.type === 'FolderSummary' && d.summary && d.summary.state === 'idle' && !d.summary.needTotalItems) idle = true;\n}\nif (!idle) return [];\nconst notes = Object.keys(s.pending).filter((p) => !p.startsWith('.') && !p.startsWith('_agent/'));\ns.pending = {};\nreturn notes.map((ref) => ({ json: { kind: 'triage', source: 'syncthing', ref, detail: 'synced to CT 107' } }));\n"
+      }
+    },
+    {
+      "id": "vl-20",
+      "name": "Worker: next job",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        1100
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vault-loop/jobs/next",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "6b0c3f9e-1d1a-4c55-9a51-0f3b7a2d1005",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__WORKER_CRED_ID__",
+          "name": "vault-loop worker"
+        }
+      }
+    },
+    {
+      "id": "vl-21",
+      "name": "Queued jobs",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        420,
+        1100
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "loop_jobs"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "queued"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1,
+        "orderBy": true,
+        "orderByColumn": "id",
+        "orderByDirection": "ASC"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "vl-22",
+      "name": "Pick oldest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        1100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const row = $input.all().map((i) => i.json).find((j) => j.id);\nif (!row) return [{ json: { job: null, id: -1, attempts: 0 } }];\nconst job = { id: row.id, kind: row.kind, source: row.source, ref: row.ref, detail: row.detail, attempts: (row.attempts || 0) + 1 };\nreturn [{ json: { job, id: row.id, attempts: job.attempts } }];\n"
+      }
+    },
+    {
+      "id": "vl-23",
+      "name": "Claim it",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        860,
+        1100
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "loop_jobs"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "queued"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "running",
+            "attempts": "={{ $json.attempts }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempts",
+              "displayName": "attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "vl-24",
+      "name": "Send job",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1080,
+        1100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ job: $('Pick oldest').first().json.job }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "vl-25",
+      "name": "Worker: report",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        1300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vault-loop/jobs/report",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "6b0c3f9e-1d1a-4c55-9a51-0f3b7a2d1006",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__WORKER_CRED_ID__",
+          "name": "vault-loop worker"
+        }
+      }
+    },
+    {
+      "id": "vl-26",
+      "name": "Check report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        1300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const b = $input.first().json.body || {};\nconst id = Number(b.id);\nif (!Number.isInteger(id) || id < 1) return [{ json: { ok: false, error: 'id must be a positive integer', id: -1 } }];\nif (b.status !== 'done' && b.status !== 'failed') return [{ json: { ok: false, error: 'status must be done or failed', id: -1 } }];\nreturn [{ json: { ok: true, id, status: b.status, detail: String(b.detail || '').slice(0, 2000) } }];\n"
+      }
+    },
+    {
+      "id": "vl-27",
+      "name": "Record result",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        640,
+        1300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "loop_jobs"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "running"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}",
+            "detail": "={{ $json.detail }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "vl-28",
+      "name": "Acknowledge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        860,
+        1300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: $('Check report').first().json.ok, error: $('Check report').first().json.error || null }) }}",
+        "options": {
+          "responseCode": "={{ $('Check report').first().json.ok ? 200 : 400 }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Job": {
+      "main": [
+        [
+          {
+            "node": "Find open job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find open job": {
+      "main": [
+        [
+          {
+            "node": "Only new jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only new jobs": {
+      "main": [
+        [
+          {
+            "node": "Queue job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plane webhook": {
+      "main": [
+        [
+          {
+            "node": "Plane: approved items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plane: approved items": {
+      "main": [
+        [
+          {
+            "node": "Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now": {
+      "main": [
+        [
+          {
+            "node": "Run now: route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now: route": {
+      "main": [
+        [
+          {
+            "node": "Is retry?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is retry?": {
+      "main": [
+        [
+          {
+            "node": "Requeue failed job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Sweep: scan Inbox",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Running jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sweep: scan Inbox": {
+      "main": [
+        [
+          {
+            "node": "Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Running jobs": {
+      "main": [
+        [
+          {
+            "node": "Stuck for over 2 hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stuck for over 2 hours": {
+      "main": [
+        [
+          {
+            "node": "Mark stuck as failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every minute": {
+      "main": [
+        [
+          {
+            "node": "Syncthing: settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Syncthing: settings": {
+      "main": [
+        [
+          {
+            "node": "Syncthing events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Syncthing events": {
+      "main": [
+        [
+          {
+            "node": "Syncthing: notes after idle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Syncthing: notes after idle": {
+      "main": [
+        [
+          {
+            "node": "Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worker: next job": {
+      "main": [
+        [
+          {
+            "node": "Queued jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queued jobs": {
+      "main": [
+        [
+          {
+            "node": "Pick oldest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick oldest": {
+      "main": [
+        [
+          {
+            "node": "Claim it",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim it": {
+      "main": [
+        [
+          {
+            "node": "Send job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worker: report": {
+      "main": [
+        [
+          {
+            "node": "Check report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check report": {
+      "main": [
+        [
+          {
+            "node": "Record result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record result": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  }
+}

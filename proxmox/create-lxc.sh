@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #
-# Create one of the vault-loop LXCs and install its service inside it.
+# Create the vault-loop LXC and install its service inside it.
 #
 #   --role loop    CT "vault-loop": Docker + n8n       2 vCPU / 1 GB / 512 MB swap / 16 GB
-#   --role plane   CT "plane":      Docker + Plane     2 vCPU / 4 GB / 1 GB swap   / 30 GB
+#
+# Plane is not created here: it runs in its own CT from the Proxmox VE
+# community script. docs/PLANE.md covers pointing its webhooks at n8n.
 #
 # RUN THIS ON THE PROXMOX HOST, as root, on eiyan2 (the memory node) -- from a
 # checkout of this repo, because the installer is pushed in from ../install/.
@@ -11,22 +13,17 @@
 #   bash proxmox/create-lxc.sh --role loop                 # asks, shows the plan, asks again
 #   CT_IP=192.168.0.40/24 CT_GW=192.168.0.1 bash proxmox/create-lxc.sh --role loop --yes
 #
-#   Plane needs to know n8n's address so its webhooks may target it (Plane
-#   blocks webhooks to private addresses unless they are allowlisted):
-#   LOOP_IP=192.168.0.40 bash proxmox/create-lxc.sh --role plane
-#
 # Without a terminal and without --yes it prints the plan and stops.
 #
 # Overrides (all optional):
 #   CTID           container ID            (default: next free)
-#   CT_HOSTNAME    hostname                (default: vault-loop / plane)
+#   CT_HOSTNAME    hostname                (default: vault-loop)
 #   CT_CORES CT_RAM CT_SWAP CT_DISK        (defaults per role, above)
 #   CT_BRIDGE      network bridge          (default: vmbr0)
 #   CT_SSHKEY      path to a public key    (default: none, password prompt)
 #   ROOT_STORE     rootfs storage          (default: first active rootdir store)
 #   TEMPLATE_STORE template storage        (default: first active vztmpl store)
 #   EXPECT_NODE    node this should run on (default: eiyan2; warns otherwise)
-#   LOOP_IP        plane only: n8n's IP for the webhook allowlist
 #   RUN_INSTALLER  install the service too (default: 1)
 
 set -euo pipefail
@@ -51,11 +48,9 @@ case "$ROLE" in
   loop)
     D_HOSTNAME=vault-loop; D_CORES=2; D_RAM=1024; D_SWAP=512;  D_DISK=16
     DESC="vault-loop - n8n control panel for the vault-to-PR loop" ;;
-  plane)
-    D_HOSTNAME=plane;      D_CORES=2; D_RAM=4096; D_SWAP=1024; D_DISK=30
-    DESC="plane - Plane Community, tickets and roadmaps for the vault-to-PR loop" ;;
-  "") die "--role is required: loop or plane" ;;
-  *)  die "--role must be loop or plane, got: $ROLE" ;;
+  plane) die "Plane is not installed by this repo: it runs from the Proxmox VE community script. See docs/PLANE.md" ;;
+  "") die "--role is required: loop" ;;
+  *)  die "--role must be loop, got: $ROLE" ;;
 esac
 
 CT_HOSTNAME="${CT_HOSTNAME:-$D_HOSTNAME}"
@@ -68,7 +63,6 @@ CT_IP="${CT_IP:-}"
 CT_GW="${CT_GW:-}"
 CT_SSHKEY="${CT_SSHKEY:-}"
 EXPECT_NODE="${EXPECT_NODE:-eiyan2}"
-LOOP_IP="${LOOP_IP:-}"
 RUN_INSTALLER="${RUN_INSTALLER:-1}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -93,10 +87,6 @@ command -v pct   >/dev/null 2>&1 || die "pct not found -- run this on the Proxmo
 command -v pvesm >/dev/null 2>&1 || die "pvesm not found -- is this really a Proxmox host?"
 if [ "$RUN_INSTALLER" = "1" ]; then
   [ -f "$INSTALLER" ] || die "installer not found at $INSTALLER -- run this from a checkout of the vault-loop repo"
-fi
-if [ -n "$LOOP_IP" ]; then
-  [ "$ROLE" = "plane" ] || die "LOOP_IP only applies to --role plane"
-  valid_ipv4 "$LOOP_IP" || die "LOOP_IP is not a valid IPv4 address: $LOOP_IP"
 fi
 
 NODE="$(hostname -s 2>/dev/null || hostname)"
@@ -210,8 +200,7 @@ fi
 
 # --- Plan -------------------------------------------------------------------
 if [ "$RUN_INSTALLER" = "1" ]; then
-  THEN="push install/${ROLE}.sh and run it (Docker + $( [ "$ROLE" = loop ] && echo n8n || echo Plane ))"
-  [ -n "$LOOP_IP" ] && THEN="$THEN; allow webhooks to $LOOP_IP"
+  THEN="push install/${ROLE}.sh and run it (Docker + n8n)"
 else
   THEN="nothing (RUN_INSTALLER=0)"
 fi
@@ -299,7 +288,7 @@ if [ "$RUN_INSTALLER" = "1" ] && [ "$ready" = "1" ]; then
   say "Installing inside the container (pulls Docker and images; give it a few minutes)..."
   pct exec "$CTID" -- bash -c "apt-get update -qq && apt-get install -y -qq curl ca-certificates openssl"
   pct push "$CTID" "$INSTALLER" /root/vault-loop-install.sh --perms 0700
-  pct exec "$CTID" -- env LOOP_IP="$LOOP_IP" bash /root/vault-loop-install.sh
+  pct exec "$CTID" -- bash /root/vault-loop-install.sh
 else
   say "Skipping the installer (RUN_INSTALLER=$RUN_INSTALLER, network ready=$ready)."
   say "Run it later with: bash proxmox/update-lxc.sh --ctid $CTID --role $ROLE --yes"
