@@ -90,30 +90,42 @@ that is GitHub ("PR merged"), whose servers can't reach the LAN. Instead of
 exposing n8n, n8n **polls GitHub** every few minutes for merged PRs, so nothing
 needs a public hostname.
 
-## Opening Plane on a public hostname as well as the LAN
+## Opening Plane on a public hostname
 
 For **you**, from a browser anywhere: `https://<plane-host>` through Cloudflare
 Access → a Cloudflare Tunnel → a reverse proxy that reaches `<plane-ip>`. The
 webhook to n8n and the PC worker keep using `<plane-ip>` on the LAN. Put Access
 over the whole hostname, with no bypass path, before the DNS record exists.
 
+**Browser sign-in then works only on `<plane-host>`.** Plane (checked against
+1.5.0) has no setting that allows it on both addresses:
+
+- `WEB_URL` (or `APP_BASE_URL`) **must be set**. `plane/utils/host.py` raises
+  `ImproperlyConfigured` on every successful login when both are empty: a bare
+  "Server Error (500)" on `POST /auth/sign-in/`, and nothing in the request log.
+  Every sign-in redirects to `WEB_URL`.
+- `WEB_URL=https://...` makes the session cookie `Secure`, which browsers won't
+  store over plain-http `<plane-ip>`.
+
+`<plane-ip>` keeps serving the API and loads the UI, but a browser can only sign
+in on `<plane-host>`.
+
 The community script builds Plane with `http://<plane-ip>` fixed in the web
-apps and the API, so a second address needs these changes inside the Plane CT
-(checked against Plane 1.5.0):
+apps and the API, so these change inside the Plane CT:
 
 | File | Change | Why |
 |---|---|---|
-| `/opt/plane/apps/{web,admin,space}/.env` | every `VITE_*_BASE_URL=` empty; keep the `*_BASE_PATH` lines | the web apps then use the address the page was opened on |
-| `/opt/plane/apps/api/.env` | `WEB_URL`, `ADMIN_BASE_URL`, `SPACE_BASE_URL`, `APP_BASE_URL` empty | sign-in redirects become relative, so you stay on the address you came from |
-| same | `CORS_ALLOWED_ORIGINS=https://<plane-host>,http://<plane-ip>` | both origins, also the CSRF trust list. One `http` origin keeps the session cookie non-`Secure`, which a plain-http LAN login needs |
-| same | keep `LIVE_BASE_URL=http://<plane-ip>` | the API calls the live server with it; empty turns document conversion off |
+| `/opt/plane/apps/api/.env` | `WEB_URL`, `APP_BASE_URL`, `ADMIN_BASE_URL`, `SPACE_BASE_URL` = `https://<plane-host>` | sign-in, redirects, cookies |
+| same | keep `LIVE_BASE_URL=http://<plane-ip>` | the API calls the live server with it |
+| same | `CORS_ALLOWED_ORIGINS=https://<plane-host>,http://<plane-ip>` | also the CSRF trust list |
+| `/opt/plane/apps/{web,admin,space}/.env` | every `VITE_*_BASE_URL=` empty; keep the `*_BASE_PATH` lines | the web apps use the address the page was opened on (otherwise set them to `https://<plane-host>`) |
 | nginx | pass `X-Forwarded-Proto` through instead of `$scheme` (below) | with MinIO, upload and download links take the request's scheme; behind the tunnel every hop is `http`, so an https page would get `http://` links and block them |
 
 ```bash
 # inside the Plane CT - back up first
 for f in /opt/plane/apps/{web,admin,space,api}/.env /etc/nginx/sites-available/plane.conf; do cp "$f" "$f.bak-pre-subdomain"; done
 for a in web admin space; do sed -i -E 's|^(VITE_[A-Z]+_BASE_URL)=.*|\1=|' /opt/plane/apps/$a/.env; done
-sed -i -E 's#^(WEB_URL|ADMIN_BASE_URL|SPACE_BASE_URL|APP_BASE_URL)=.*#\1=#; s#^CORS_ALLOWED_ORIGINS=.*#CORS_ALLOWED_ORIGINS=https://<plane-host>,http://<plane-ip>#' /opt/plane/apps/api/.env
+sed -i -E 's#^(WEB_URL|APP_BASE_URL|ADMIN_BASE_URL|SPACE_BASE_URL)=.*#\1=https://<plane-host>#; s#^CORS_ALLOWED_ORIGINS=.*#CORS_ALLOWED_ORIGINS=https://<plane-host>,http://<plane-ip>#' /opt/plane/apps/api/.env
 echo 'map $http_x_forwarded_proto $plane_fwd_proto { default $http_x_forwarded_proto; "" $scheme; }' > /etc/nginx/conf.d/plane-forwarded-proto.conf
 sed -i 's|proxy_set_header X-Forwarded-Proto \$scheme;|proxy_set_header X-Forwarded-Proto $plane_fwd_proto;|' /etc/nginx/sites-available/plane.conf
 nginx -t && systemctl reload nginx
@@ -131,10 +143,8 @@ API runs under gunicorn, which trusts that header from nginx on `127.0.0.1`.
 - **It survives updates:** the community script's update backs up and restores
   these four `.env` files and rebuilds the web apps with them, and does not
   touch nginx.
-- **Re-check after every Plane update:** sign in on both addresses, open a page
-  in the editor, upload an image. The empty-address behaviour is how Plane's
-  code works today, not a documented setting.
+- **Re-check after every Plane update:** sign in on `<plane-host>`, open a page
+  in the editor, upload an image.
 - **Check from outside:** without an Access session, every path on
   `https://<plane-host>` must answer `302` to `<team>.cloudflareaccess.com`.
-- Costs: links Plane writes into emails and notifications use `WEB_URL`, so
-  they are relative; the session cookie is not `Secure` on the hostname.
+- Changing only the API `.env` needs `systemctl restart plane-api plane-worker plane-beat`; a `VITE_*` change needs the rebuild.
