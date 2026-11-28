@@ -74,10 +74,14 @@ pwsh -File pc\setup-plane.ps1 -Registry '<inbox vault>\Systems.md' -BaseUrl http
 Remove-Item Env:\PLANE_API_TOKEN
 ```
 
-It reads the registry's `## For the loop` table (a backticked identifier in
-the Plane project column), creates each missing project, adds the six states
+It reads the registry's `## For the loop` table by column header: `System`
+(the id notes use), `Plane project` (a backticked identifier), and an optional
+`Name` for the project's display name. Plane allows no `& + , : ; $ ^ { } * = ?
+@ # | ' < > . ( ) % ! -` in a name, so those become spaces. It creates each
+missing project, adds the six states
 (reusing Plane's own `Done`, making `Proposed` the default) and the four
-labels. It never deletes or renames anything and is safe to re-run - a new
+labels. It never deletes or renames anything (an existing project with another name
+is reported, for you to rename in Plane) and is safe to re-run - a new
 registry row is a re-run. Use the LAN address: the public hostname is behind
 Access, which a script can't pass.
 

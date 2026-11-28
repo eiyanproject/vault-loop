@@ -50,11 +50,11 @@ if (-not $py) {
 
 ## For the loop
 
-| System | Repo | Plane project |
-|---|---|---|
-| alpha | `o/alpha` | `ALP` (to create) |
-| beta | - (planned) | `BET` |
-| nolabel | ? | ? |
+| System | Name | Repo | Plane project |
+|---|---|---|---|
+| alpha | Alpha Service | `o/alpha` | `ALP` (to create) |
+| beta-two | | - (planned) | `BET` |
+| nolabel | No Label | ? | ? |
 
 Text after the table.
 
@@ -85,6 +85,9 @@ Text after the table.
     $out = & $run -Apply
     $store = Invoke-RestMethod "$base/_dump"
     Check "apply creates exactly the two projects" ((@($store.projects | ForEach-Object identifier) -join ',') -eq 'ALP,BET')
+    Check "a hyphen in a system name becomes a space" ((@($store.projects | Where-Object identifier -eq 'BET')[0].name) -eq 'beta two')
+    Check "the Name column names the project" ((@($store.projects | Where-Object identifier -eq 'ALP')[0].name) -eq 'Alpha Service')
+    Check "apply says when it had to change a name" ($out -match "create project 'beta two' \(Plane allows no special characters\)")
     foreach ($p in $store.projects) {
       $names = @($p.states | ForEach-Object name)
       Check "$($p.identifier) has all six loop states" (@('Proposed','Approved','Agent working','In review','Needs you','Done' | Where-Object { $names -notcontains $_ }).Count -eq 0)
@@ -100,6 +103,18 @@ Text after the table.
     Check "second plan has nothing to do" ($out -match 'Nothing to do')
     $out = & $run -Apply
     Check "second apply writes nothing" ((& $writes) -eq $before)
+
+    # A project that already exists under another name is reported, never renamed.
+    $h = @{ 'X-Api-Key' = $token }
+    Invoke-RestMethod -Method Post -Uri "$base/api/v1/workspaces/ws/projects/" -Headers $h -ContentType 'application/json' -Body '{"name":"Old Name","identifier":"OLD"}' | Out-Null
+    $lines = [System.Collections.Generic.List[string]](Get-Content $reg)
+    $at = $lines.FindIndex([Predicate[string]]{ param($l) $l -like '| nolabel*' })
+    $lines.Insert($at + 1, '| omega | Omega Tool | - | `OLD` |')
+    Set-Content -Path $reg -Encoding utf8 -Value $lines
+    $before = & $writes
+    $out = & $run -Apply
+    Check "an existing name that differs is reported" ($out -match "named 'Old Name', registry says 'Omega Tool'")
+    Check "and the project is not renamed" ((@((Invoke-RestMethod "$base/_dump").projects | Where-Object identifier -eq 'OLD')[0].name) -eq 'Old Name')
 
     $out = & $run -Tok 'wrong-token'
     Check "a wrong token is reported" ($out -match 'refused the token \(HTTP 401\)')

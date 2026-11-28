@@ -11,6 +11,7 @@ GET /_dump returns the whole store and POST /_count the number of writes, so
 tests can check that plan mode changed nothing.
 """
 import json
+import re
 import sys
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +20,8 @@ from urllib.parse import urlparse
 TOKEN = sys.argv[1]
 STORE = {"projects": []}   # each project: {id, name, identifier, states: [], labels: []}
 WRITES = {"n": 0}
+# Plane 1.5.0 Project.FORBIDDEN_IDENTIFIER_CHARS_PATTERN, checked on name and identifier
+FORBIDDEN = r"^.*[&+,:;$^}{*=?@#|'<>.()%!-].*$"
 
 DEFAULT_STATES = [
     ("Backlog", "backlog", True), ("Todo", "unstarted", False),
@@ -72,6 +75,10 @@ class H(BaseHTTPRequestHandler):
             if method == "POST":
                 b = self.body()
                 ident = b.get("identifier", "").upper()
+                if re.match(FORBIDDEN, b.get("name", "")):
+                    return self.send(400, {"non_field_errors": ["Project name cannot contain special characters."]})
+                if re.match(FORBIDDEN, ident):
+                    return self.send(400, {"non_field_errors": ["Project identifier cannot contain special characters."]})
                 if any(p["identifier"] == ident for p in STORE["projects"]):
                     return self.send(409, {"identifier": "The project identifier is already taken"})
                 p = {"id": str(uuid.uuid4()), "name": b["name"], "identifier": ident, "labels": [],

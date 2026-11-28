@@ -50,24 +50,39 @@ function Read-Registry([string]$path) {
   $start = [array]::FindIndex($lines, [Predicate[string]]{ param($l) $l -match '^##\s+For the loop\s*$' })
   if ($start -lt 0) { throw "no '## For the loop' section in $path" }
   $rows = @()
-  $seenHeader = $false
+  $col = $null   # column name -> index, from the header row
   for ($i = $start + 1; $i -lt $lines.Count; $i++) {
     $l = $lines[$i].Trim()
     if ($l -match '^##\s') { break }
     if (-not $l.StartsWith('|')) {
-      if ($seenHeader -and $l -ne '') { break }   # first text after the table ends it
+      if ($col -and $l -ne '') { break }   # first text after the table ends it
       continue
     }
-    if (-not $seenHeader) { $seenHeader = $true; continue }   # header row
-    if ($l -match '^\|[\s:|-]+\|$') { continue }              # separator row
-    $cells = $l.Trim('|').Split('|') | ForEach-Object { $_.Trim() }
-    $system = ($cells[0] -replace '`', '').Trim()
-    $m = [regex]::Match($cells[2], '`([A-Za-z0-9]{1,12})`')
+    $cells = @($l.Trim('|').Split('|') | ForEach-Object { $_.Trim() })
+    if (-not $col) {
+      # Columns are found by their header, so their order and extra columns don't matter.
+      $col = @{}
+      for ($c = 0; $c -lt $cells.Count; $c++) { $col[$cells[$c].ToLower()] = $c }
+      foreach ($need in 'system', 'plane project') {
+        if (-not $col.ContainsKey($need)) { throw "the '## For the loop' table has no '$need' column" }
+      }
+      continue
+    }
+    if ($l -match '^\|[\s:|-]+\|$') { continue }   # separator row
+    $cell = { param($n) if ($col.ContainsKey($n) -and $col[$n] -lt $cells.Count) { ($cells[$col[$n]] -replace '`', '').Trim() } else { '' } }
+    $system = & $cell 'system'
+    $m = [regex]::Match($cells[$col['plane project']], '`([A-Za-z0-9]{1,12})`')
     if (-not $system -or -not $m.Success) {
       Write-Host "  skip  row without a Plane identifier: $l"
       continue
     }
-    $rows += [pscustomobject]@{ System = $system; Identifier = $m.Groups[1].Value.ToUpper() }
+    # The project's name: the Name column when there is one, else the system id.
+    # Plane refuses these characters in a name (Project.FORBIDDEN_IDENTIFIER_CHARS_PATTERN,
+    # 1.5.0), so they become spaces. Projects are matched by identifier, never by name.
+    $want = & $cell 'name'
+    if (-not $want) { $want = $system }
+    $name = (($want -replace '[&+,:;$^}{*=?@#|''<>.()%!\-]', ' ') -replace '\s+', ' ').Trim()
+    $rows += [pscustomobject]@{ System = $system; Wanted = $want; Name = $name; Identifier = $m.Groups[1].Value.ToUpper() }
   }
   if (-not $rows.Count) { throw "the '## For the loop' table in $path has no rows with a Plane identifier" }
   return $rows
@@ -118,12 +133,15 @@ foreach ($row in $rows) {
   $proj = $projects | Where-Object { $_.identifier -eq $row.Identifier } | Select-Object -First 1
   Write-Host ""
   if ($proj) {
-    Write-Host ("{0,-6} {1}: project exists" -f $row.Identifier, $row.System)
+    # Never renames: a different name is reported, for you to change in Plane if you want.
+    $diff = if ($proj.name -ine $row.Name) { "  (named '$($proj.name)', registry says '$($row.Name)' - rename it in Plane if you like)" } else { '' }
+    Write-Host ("{0,-6} {1}: project exists{2}" -f $row.Identifier, $row.System, $diff)
   } else {
     $changes++
-    Write-Host ("{0,-6} {1}: create project" -f $row.Identifier, $row.System)
+    $as = if ($row.Name -cne $row.Wanted) { " '$($row.Name)' (Plane allows no special characters)" } else { " '$($row.Name)'" }
+    Write-Host ("{0,-6} {1}: create project{2}" -f $row.Identifier, $row.System, $as)
     if ($Apply) {
-      $proj = Invoke-Plane POST '/projects/' @{ name = $row.System; identifier = $row.Identifier }
+      $proj = Invoke-Plane POST '/projects/' @{ name = $row.Name; identifier = $row.Identifier }
     }
   }
 
