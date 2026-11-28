@@ -85,6 +85,10 @@ is reported, for you to rename in Plane) and is safe to re-run - a new
 registry row is a re-run. Use the LAN address: the public hostname is behind
 Access, which a script can't pass.
 
+Plane allows 60 API requests a minute per token (`API_KEY_RATE_LIMIT`); a
+full setup needs about ten per project, so it pauses when Plane says to and
+carries on - expect a few minutes for a dozen projects.
+
 By hand, in the Plane web UI, the same is:
 
 1. **One workspace** (an existing one is fine).

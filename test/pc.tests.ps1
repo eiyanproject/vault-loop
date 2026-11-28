@@ -118,6 +118,24 @@ Text after the table.
 
     $out = & $run -Tok 'wrong-token'
     Check "a wrong token is reported" ($out -match 'refused the token \(HTTP 401\)')
+
+    # A second fake that allows only 10 requests a second, like Plane's per-token limit.
+    $portFile2 = Join-Path $dir 'port2.txt'
+    $srv2 = Start-Process -FilePath $py.Source -ArgumentList '-I', (Join-Path $root 'test\fake-plane.py'), $token, '10', '1' `
+              -RedirectStandardOutput $portFile2 -PassThru -WindowStyle Hidden
+    try {
+      for ($i = 0; $i -lt 50 -and -not ((Test-Path $portFile2) -and (Get-Content $portFile2 -Raw)); $i++) { Start-Sleep -Milliseconds 100 }
+      $base = "http://127.0.0.1:$((Get-Content $portFile2 -Raw).Trim())"
+      $out = & $run -Apply
+      $c = Invoke-RestMethod "$base/_count"
+      $store = Invoke-RestMethod "$base/_dump"
+      Check "rate limit: Plane said 429 at least once" ($c.limited -ge 1)
+      Check "rate limit: the script waited and said so" ($out -match "rate limit: waiting 1 s")
+      Check "rate limit: setup still finished" ($out -match 'Done: \d+ change\(s\) made' -and @($store.projects).Count -eq 3)
+      Check "rate limit: every project got its labels" (@($store.projects | Where-Object { @($_.labels).Count -ne 4 }).Count -eq 0)
+    } finally {
+      Stop-Process -Id $srv2.Id -Force -ErrorAction SilentlyContinue
+    }
   } finally {
     Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue

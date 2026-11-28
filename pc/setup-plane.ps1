@@ -99,9 +99,20 @@ $api = $BaseUrl.TrimEnd('/') + "/api/v1/workspaces/$Workspace"
 $headers = @{ 'X-Api-Key' = $token; 'Accept' = 'application/json' }
 
 function Invoke-Plane([string]$method, [string]$path, $body = $null) {
-  $p = @{ Method = $method; Uri = "$api$path"; Headers = $headers; SkipHttpErrorCheck = $true; StatusCodeVariable = 'code' }
+  $p = @{ Method = $method; Uri = "$api$path"; Headers = $headers; SkipHttpErrorCheck = $true
+          StatusCodeVariable = 'code'; ResponseHeadersVariable = 'rh' }
   if ($null -ne $body) { $p.Body = ($body | ConvertTo-Json -Depth 5); $p.ContentType = 'application/json' }
-  $r = Invoke-RestMethod @p
+  # Plane limits each API token (API_KEY_RATE_LIMIT, 60/minute by default) and a
+  # full setup needs more than that. On 429, wait as long as Plane says, then retry.
+  for ($attempt = 1; ; $attempt++) {
+    $r = Invoke-RestMethod @p
+    if ($code -ne 429 -or $attempt -gt 10) { break }
+    $wait = 60
+    if ($rh -and $rh['Retry-After']) { [int]::TryParse(@($rh['Retry-After'])[0], [ref]$wait) | Out-Null }
+    $wait = [Math]::Max(1, $wait)
+    Write-Host "         (Plane's rate limit: waiting $wait s, then retrying)"
+    Start-Sleep -Seconds $wait
+  }
   if ($code -eq 401 -or $code -eq 403) { throw "Plane refused the token (HTTP $code) for $method $path" }
   if ($code -ge 400) {
     $detail = if ($r -is [string]) { $r } else { $r | ConvertTo-Json -Compress -Depth 5 }

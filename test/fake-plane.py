@@ -13,11 +13,18 @@ tests can check that plan mode changed nothing.
 import json
 import re
 import sys
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 TOKEN = sys.argv[1]
+# Optional: allow at most LIMIT API requests per WINDOW seconds, then answer 429
+# with Retry-After - like Plane's API_KEY_RATE_LIMIT (60/minute by default).
+LIMIT = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+WINDOW = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+HITS = []
+RATE = {"limited": 0}
 STORE = {"projects": []}   # each project: {id, name, identifier, states: [], labels: []}
 WRITES = {"n": 0}
 # Plane 1.5.0 Project.FORBIDDEN_IDENTIFIER_CHARS_PATTERN, checked on name and identifier
@@ -42,9 +49,11 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def send(self, code, body=None):
+    def send(self, code, body=None, headers=None):
         data = b"" if body is None else json.dumps(body).encode()
         self.send_response(code)
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -59,9 +68,17 @@ class H(BaseHTTPRequestHandler):
         if path == "/_dump":
             return self.send(200, STORE)
         if path == "/_count":
-            return self.send(200, {"writes": WRITES["n"]})
+            return self.send(200, {"writes": WRITES["n"], "limited": RATE["limited"]})
         if self.headers.get("X-Api-Key") != TOKEN:
             return self.send(401, {"detail": "Authentication credentials were not provided."})
+        if LIMIT:
+            now = time.monotonic()
+            HITS[:] = [t for t in HITS if t > now - WINDOW]
+            if len(HITS) >= LIMIT:
+                RATE["limited"] += 1
+                return self.send(429, {"error_code": 5900, "error_message": "RATE_LIMIT_EXCEEDED"},
+                                 {"Retry-After": str(WINDOW)})
+            HITS.append(now)
         parts = [p for p in path.split("/") if p]
         # api v1 workspaces <slug> projects [<id> (states|labels) [<id>]]
         if parts[:3] != ["api", "v1", "workspaces"] or len(parts) < 5 or parts[4] != "projects":
