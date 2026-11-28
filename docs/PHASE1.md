@@ -62,7 +62,26 @@ kept as an example.
 
 ## 4. Plane: workspace, projects, states, labels
 
-Layout and the reasons for it: `docs/PLANE.md`. In the Plane web UI:
+Layout and the reasons for it: `docs/PLANE.md`.
+
+**Steps 2-4 are a script.** Create a personal API token in Plane (*Profile
+settings → API tokens*), then on the PC:
+
+```powershell
+$env:PLANE_API_TOKEN = Read-Host -MaskInput 'Plane API token'
+pwsh -File pc\setup-plane.ps1 -Registry '<inbox vault>\Systems.md' -BaseUrl http://<plane-ip> -Workspace <slug>          # plan only
+pwsh -File pc\setup-plane.ps1 -Registry '<inbox vault>\Systems.md' -BaseUrl http://<plane-ip> -Workspace <slug> -Apply   # make it so
+Remove-Item Env:\PLANE_API_TOKEN
+```
+
+It reads the registry's `## For the loop` table (a backticked identifier in
+the Plane project column), creates each missing project, adds the six states
+(reusing Plane's own `Done`, making `Proposed` the default) and the four
+labels. It never deletes or renames anything and is safe to re-run - a new
+registry row is a re-run. Use the LAN address: the public hostname is behind
+Access, which a script can't pass.
+
+By hand, in the Plane web UI, the same is:
 
 1. **One workspace** (an existing one is fine).
 2. **One project per registry row**, with a short identifier (`LRN`, `MON`,

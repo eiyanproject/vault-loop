@@ -34,7 +34,8 @@ Invariants:
   are `__PLACEHOLDERS__` filled in by `n8n/setup-n8n.sh`.
 
 Tests (Docker only): `bash test/run-scripts.sh` and `bash test/run-n8n.sh`.
-PC helpers: `pwsh -File test/pc.tests.ps1`.
+PC helpers: `pwsh -File test/pc.tests.ps1` (the Plane part needs `python` on PATH;
+it runs `pc/setup-plane.ps1` against `test/fake-plane.py`, never a real Plane).
 
 ## Observability
 
