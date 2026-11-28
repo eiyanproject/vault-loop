@@ -25,7 +25,7 @@ from that script on 24 Nov 2026:
 
 ## One workspace, one project per system
 
-Use **one workspace** (for example `homelab`) and **one project per system**.
+Use **one workspace** (an existing one is fine) and **one project per system**.
 
 - A workspace is Plane's top level. Members, webhooks and the cross-project
   "Your work" view are set per workspace. Several workspaces would mean a
@@ -34,8 +34,9 @@ Use **one workspace** (for example `homelab`) and **one project per system**.
   vault-loop, vnc-gateway, homelab-monitoring, and so on. Each has its own work
   items, states, labels, Modules and Cycles. Give each a short identifier
   (`LRN`, `R18`, ...) so items read as `LRN-12`.
-- Each `Systems/<name>.md` entry in the vault names its Plane project. Triage
-  picks the project; a new system becomes a new project in the same workspace.
+- The registry in the inbox vault (`docs/PHASE1.md` section 3) names each
+  system's Plane project. Triage picks the project; a new system becomes a new
+  project in the same workspace.
 - A roadmap is the **Modules** inside that system's project, not a separate
   project.
 - Every project uses the same states, so n8n only has to recognise one set:
@@ -45,7 +46,7 @@ Use **one workspace** (for example `homelab`) and **one project per system**.
 
 Personal or non-system tasks can live in their own workspace. The wall that
 keeps the agent out is a **separate bot account** that is a member of the
-`homelab` workspace only, with its API token created under that account. Your
+loop's workspace only, with its API token created under that account. Your
 own account can belong to both. Use the bot account even with one workspace,
 so everything the agent does in Plane shows under its name, not yours.
 

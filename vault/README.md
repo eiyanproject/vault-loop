@@ -1,8 +1,10 @@
 # vault/ - seed files for the loop's Obsidian vault
 
-Copy these into the vault the loop watches (the one Syncthing shares through
-CT 107). Nothing in the vault is overwritten by the loop; these are starting
-points you own once copied.
+Generic starting points. **If the vault the loop watches already files work by
+type** (errors, improvements, an idea list ...), use its own notes instead and
+skip these: `docs/PHASE1.md` section 2 shows the mapping. Otherwise copy these
+into the vault the loop watches (the one Syncthing shares through CT 107);
+they are yours once copied.
 
 ```
 vault/Templates/   note templates: CHANGE, PROJECT, INCIDENT, IDEA
