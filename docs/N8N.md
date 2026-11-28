@@ -63,6 +63,35 @@ long old executions are kept. Change a value there, then
 `docker compose -f /opt/vault-loop/docker-compose.yml up -d`. Never paste this
 file anywhere: it holds the encryption key.
 
+## Serving n8n on a public hostname
+
+n8n can also be opened at an https hostname, e.g. `https://<n8n-host>`, through
+Cloudflare Access → a Cloudflare Tunnel → a reverse proxy that reaches the LAN.
+The LAN address keeps working, and every machine-to-machine call (Plane's
+webhook, the PC worker, the metrics scrape) stays on the LAN.
+
+- **Put Access in front of the whole hostname, with no bypass path.** The Run
+  now form and the Plane webhook have no authentication of their own; on the
+  LAN that is fine, on the internet it is not. Create the Access application
+  **before** the DNS record exists.
+- **In `.env`**, then recreate the container
+  (`docker compose -f /opt/vault-loop/docker-compose.yml up -d --force-recreate`):
+
+  ```
+  N8N_HOST=<n8n-host>
+  N8N_PROTOCOL=https
+  WEBHOOK_URL=https://<n8n-host>/
+  N8N_PROXY_HOPS=1
+  ```
+
+  `WEBHOOK_URL` only changes the URLs n8n *shows* for webhooks and forms; the
+  paths answer on every address. The installer only fills in missing keys, so
+  re-running it keeps these.
+- **Leave `N8N_SECURE_COOKIE=false`** while you also log in over plain http on
+  the LAN: with it on, n8n refuses an http login.
+- **Check:** without an Access session, `curl -sI https://<n8n-host>/form/vault-loop/run-now`
+  must answer `302` to `<team>.cloudflareaccess.com`, never `200`.
+
 ## Loop workflow (Phase 2)
 
 The loop runs as **one workflow**, `vault-loop`, kept in this repo:

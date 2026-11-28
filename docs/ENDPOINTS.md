@@ -18,6 +18,7 @@ to the internet.
 |---|---|---|
 | `192.168.0.36:8384` | CT 107, Syncthing (eiyan2) | Vault sync hub. Web UI, and the REST API n8n polls for sync events |
 | `<loop-ip>:5678` | CT 110 `vault-loop`, n8n (eiyan2) | Queue, triggers, Run now form, worker API, `/metrics` |
+| `https://<n8n-host>` | the same n8n, through Cloudflare Access → tunnel → OCI Caddy | You, from a browser anywhere. Whole hostname behind Access, no bypass; machines keep using `<loop-ip>` (`docs/N8N.md`) |
 | `<plane-ip>:80` | Plane CT (community script, eiyan2) | Tickets and roadmaps. `/god-mode/` is the instance admin |
 | `192.168.0.200:8428` | CT 200 `mon-eiyan2`, VictoriaMetrics | Scrapes n8n's `/metrics` (primary) |
 | `192.168.0.201` | CT 201 `mon-eiyan` | Monitoring standby; also registered to scrape n8n |

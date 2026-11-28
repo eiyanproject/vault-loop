@@ -16,8 +16,10 @@ Invariants:
   the Proxmox VE community script (native install under `/opt/plane`, no
   Docker). `docs/PLANE.md` is the only Plane material here; never add a Plane
   installer back.
-- Nothing in this repo opens a port to the internet. Remote access is Tailscale
-  in Phase 0; a public hostname later goes Access → tunnel → OCI Caddy → Tailscale.
+- Nothing in this repo opens a port to the internet. Remote access is LAN,
+  Tailscale, and public hostnames that go Access → tunnel → OCI Caddy →
+  Tailscale, with Access over the whole hostname and no bypass path: every
+  machine-to-machine call stays on the LAN (`docs/N8N.md`).
 - The vault backup keeps its git directory outside the vault, so Syncthing never
   sees `.git`.
 - Never print, log or commit a secret. Generated keys stay in the container.
