@@ -20,6 +20,7 @@ to the internet.
 | `<loop-ip>:5678` | CT 110 `vault-loop`, n8n (eiyan2) | Queue, triggers, Run now form, worker API, `/metrics` |
 | `https://<n8n-host>` | the same n8n, through Cloudflare Access → tunnel → OCI Caddy | You, from a browser anywhere. Whole hostname behind Access, no bypass; machines keep using `<loop-ip>` (`docs/N8N.md`) |
 | `<plane-ip>:80` | Plane CT (community script, eiyan2) | Tickets and roadmaps. `/god-mode/` is the instance admin |
+| `https://<plane-host>` | the same Plane, through Cloudflare Access → tunnel → OCI Caddy | You, from a browser anywhere. Machines keep using `<plane-ip>` (`docs/PLANE.md`) |
 | `192.168.0.200:8428` | CT 200 `mon-eiyan2`, VictoriaMetrics | Scrapes n8n's `/metrics` (primary) |
 | `192.168.0.201` | CT 201 `mon-eiyan` | Monitoring standby; also registered to scrape n8n |
 | `192.168.0.1` | LAN gateway | Default gateway the host scripts offer for a static CT address |
