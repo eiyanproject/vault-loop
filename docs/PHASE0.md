@@ -176,8 +176,8 @@ should load. Bookmark them.
 | | Where | Address |
 | --- | --- | --- |
 | Vault hub | CT 107, eiyan2 | `/srv/vault` (or your path) |
-| n8n | CT 108, eiyan2 | `http://<loop-ip>:5678` |
-| Plane | CT 117 (or next free), eiyan2 | `http://<plane-ip>/` |
+| n8n | CT 110, eiyan2 | `http://<loop-ip>:5678` |
+| Plane | CT 108, eiyan2 | `http://<plane-ip>/` |
 | Vault backup | GitHub, private | nightly 03:30 |
 
 ## Undo

@@ -1,6 +1,6 @@
 # Plane: layout and webhooks
 
-How Plane is organised for the loop, and how it talks to n8n (CT 108).
+How Plane is organised for the loop, and how it talks to n8n (CT 110).
 
 ## How Plane is installed
 
@@ -51,8 +51,8 @@ so everything the agent does in Plane shows under its name, not yours.
 
 ## Webhooks to n8n
 
-Plane and n8n are both on the LAN, so the webhook goes straight from CT 117 to
-CT 108 by IP address. **No subdomain, tunnel or public hostname is needed.**
+Plane and n8n are both on the LAN, so the webhook goes straight from CT 108 to
+CT 110 by IP address. **No subdomain, tunnel or public hostname is needed.**
 
 1. **In n8n:** a workflow that starts with a **Webhook** node, method `POST`,
    path e.g. `plane`. Copy its **Production URL**

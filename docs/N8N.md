@@ -1,6 +1,6 @@
 # n8n: install and how it is configured
 
-n8n (CT 108) is the loop's control layer: job queue, triggers and the Run now
+n8n (CT 110) is the loop's control layer: job queue, triggers and the Run now
 page. It does no AI work and reads no vault files. The container runs **only
 n8n**: one Docker container with its built-in SQLite database in a volume.
 

@@ -7,7 +7,7 @@
 #   3. the workflow `vault-loop` from n8n/workflows/vault-loop.json,
 #      created or updated in place, then turned on
 #
-# Run it from any machine that reaches n8n, e.g. inside CT 108, from a checkout
+# Run it from any machine that reaches n8n, e.g. inside CT 110, from a checkout
 # of this repo. Needs curl and jq. Re-running is safe: it creates only what is
 # missing and updates the workflow to the repo's version.
 #

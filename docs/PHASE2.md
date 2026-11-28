@@ -37,7 +37,7 @@ n8n must be running (`docs/N8N.md`). In its web UI:
    Also note the **folder ID** of the shared vault folder (the ID, not the
    label: *Edit* on the folder shows it).
 
-## 2. Run the setup (inside CT 108)
+## 2. Run the setup (inside CT 110)
 
 ```bash
 apt-get install -y git jq
